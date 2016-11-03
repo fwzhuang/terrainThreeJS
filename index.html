@@ -46,15 +46,16 @@
 
 		<script src="js/BufferGeometryUtils.js"></script>
 
-		<script src="js/shaders/NormalMapShader.js"></script>
-		<script src="js/ShaderTerrain.js"></script>
-
+		// <script src="js/shaders/NormalMapShader.js"></script>
+		// <script src="js/ShaderTerrain.js"></script>
+		// <script src="js/functions.js"></script>
+		// <script src="js/WaterShader.js"></script>
 		<script src="js/Detector.js"></script>
 		<script src="js/libs/stats.min.js"></script>
 
 		<script id="fragmentShader" type="x-shader/x-fragment">
 
-		uniform sampler2D oceanTexture;
+		uniform sampler2D groundTexture;
 	    uniform sampler2D sandyTexture;
 	    uniform sampler2D grassTexture;
 	    uniform sampler2D rockyTexture;
@@ -66,8 +67,8 @@
 
 	    void main() 
 	    {
-	        vec4 water = (smoothstep(0.01, 0.25, vAmount) - smoothstep(0.24, 0.26, vAmount)) * texture2D( oceanTexture, vUV * 10.0 );
-	        vec4 sandy = (smoothstep(0.24, 0.27, vAmount) - smoothstep(0.28, 0.31, vAmount)) * texture2D( sandyTexture, vUV * 10.0 );
+	        vec4 water = (smoothstep(0.01, 0.25, vAmount) - smoothstep(0.24, 0.26, vAmount)) * texture2D( sandyTexture, vUV * 10.0 );
+	        vec4 sandy = (smoothstep(0.24, 0.27, vAmount) - smoothstep(0.28, 0.31, vAmount)) * texture2D( groundTexture, vUV * 10.0 );
 	        vec4 grass = (smoothstep(0.28, 0.32, vAmount) - smoothstep(0.35, 0.40, vAmount)) * texture2D( grassTexture, vUV * 20.0 );
 	        vec4 rocky = (smoothstep(0.30, 0.50, vAmount) - smoothstep(0.40, 0.70, vAmount)) * texture2D( rockyTexture, vUV * 20.0 );
 	        vec4 snowy = (smoothstep(0.50, 0.65, vAmount))                                   * texture2D( snowyTexture, vUV * 10.0 );
@@ -93,7 +94,7 @@
 	        vAmount = bumpData.r; // assuming map is grayscale it doesn't matter if you use r, g, or b.
 
 	        // move the position along the normal
-	        vec3 newPosition = position + normal;// * bumpScale * vAmount;
+	        vec3 newPosition = position + normal * bumpScale * vAmount;
 
 	        gl_Position = projectionMatrix * modelViewMatrix * vec4( newPosition, 1.0 );
 	    }
@@ -110,91 +111,94 @@
 			var renderer, container, stats;
 
 			var camera, scene;
-			var cameraOrtho, sceneRenderTarget;
-
-			var uniformsNoise, uniformsNormal,
-				heightMap, normalMap,
-				quadTarget;
-
-			var directionalLight, pointLight;
 
 			var terrain;
 
-			var textureCounter = 0;
-
-			var animDelta = 0, animDeltaDir = -1;
-			var lightVal = 0, lightDir = 1;
+			var light;
 
 			var clock = new THREE.Clock();
 
-			var updateNoise = true;
+			// var uniformsNoise, uniformsNormal,
+			// 	heightMap, normalMap,
+			// 	quadTarget;
 
-			var animateTerrain = false;
+			// var directionalLight, pointLight;
 
-			var mlib = {};
+
+			// var animDelta = 0, animDeltaDir = -1;
+			// var lightVal = 0, lightDir = 1;
+
+			
+
+			// var updateNoise = true;
+
+			// var animateTerrain = false;
+
+			// var mlib = {};
+			//add 
+			var textureLoader = new THREE.TextureLoader();
 
 			init();
 			animate();
 
+			function initLight(){
+				var ambient = new THREE.AmbientLight( 0x404040 );
+		        scene.add( ambient );
+
+		        light = new THREE.PointLight( 0x0066FF, 2, 0 );
+		        light.position.set( 0, 3000, 0 );
+		        scene.add( light );
+			}
 			function initCube() {
 			    cube = new THREE.Mesh(new THREE.CubeGeometry(2, 2, 2), new THREE.MeshNormalMaterial());
 			    scene.add(cube);
 			}
 
 			function initSkybox() {
-		        var skyboxGeometry = new THREE.CubeGeometry( 20000, 20000, 10000 );
-		        var skyboxMaterial = new THREE.MeshBasicMaterial( { color:0x9999ff, side:THREE.BackSide } );
-		        var skyBox = new THREE.Mesh( skyboxGeometry, skyboxMaterial );
-		        //materials.push( skyboxMaterial );
-		        scene.add( skyBox );	
-
+				var imagePrefix = "textures/sky/";
+				var directions  = ["posx", "negx", "posy", "negy", "posz", "negz"];
+				var imageSuffix = ".png";
+				var skyGeometry = new THREE.CubeGeometry( 1000000, 1000000, 1000000 );	
+				var materialArray = [];
+				for (var i = 0; i < 6; i++)
+					materialArray.push( new THREE.MeshBasicMaterial({
+						map: textureLoader.load( imagePrefix + directions[i] + imageSuffix ),
+						side: THREE.BackSide
+					}));
+				var skyMaterial = new THREE.MeshFaceMaterial( materialArray );
+				var skyBox = new THREE.Mesh( skyGeometry, skyMaterial );
+				scene.add( skyBox );
 			}
-
-		    // function getImageData( image ) {
-		    //     var canvas = document.createElement( 'canvas' );
-		    //     canvas.width = image.width;
-		    //     canvas.height = image.height;
-		    //     var context = canvas.getContext( '2d' );
-		    //     context.drawImage( image, 0, 0 );
-		    //     return context.getImageData( 0, 0, image.width, image.height );
-
-		    // }
 
 			function initTerrain() {
 
 				terrainGeometry = new THREE.PlaneGeometry( 4096, 4096, 511, 511 ); // image is 512x512, so we need that -1 here.
             	terrainGeometry.dynamic = true;
 
-            	var heightScale = 200.0; // 200.0
-
-            	var textureLoader = new THREE.TextureLoader();
-
-            	var heightmapTexture = textureLoader.load('textures/tex/heightmap.jpg')
+            	var heightScale = 1000.0; // 200.0
+            	var heightmapTexture = textureLoader.load('textures/terrain/heightmap.jpg')
  	
- 			// 	object.material.uniforms.tDisplacement.value = heightmapTexture;
-				// object.material.uniforms.uDisplacementScale.value = 2.436143 * 100; 
-
-            	var oceanTexture = textureLoader.load('textures/tex/dirt-512.jpg')
-		        oceanTexture.wrapS = oceanTexture.wrapT = THREE.RepeatWrapping;
-		        oceanTexture.repeat.set( 10, 10 );
+            	var groundTexture = textureLoader.load('textures/terrain/ground.jpg')
+		        groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
+		        // groundTexture.repeat.set( 10, 10 );
 		        
-		        var sandyTexture = textureLoader.load('textures/tex/sand-512.jpg' );
+		        var sandyTexture = textureLoader.load('textures/terrain/sand.jpg' );
 		        sandyTexture.wrapS = sandyTexture.wrapT = THREE.RepeatWrapping;
 		        // sandyTexture.repeat.set( 50, 50 );
 		        
-		        var grassTexture = textureLoader.load('textures/tex/grass-512.jpg' );
+		        var grassTexture = textureLoader.load('textures/terrain/grass.jpg' );
 		        grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
 		        
-		        var rockyTexture = textureLoader.load('textures/tex/rock-512.jpg' );
+		        var rockyTexture = textureLoader.load('textures/terrain/rock.jpg' );
 		        rockyTexture.wrapS = rockyTexture.wrapT = THREE.RepeatWrapping;
 		        
-		        var snowyTexture = textureLoader.load('textures/tex/snow-512.jpg'  );
+		        var snowyTexture = textureLoader.load('textures/terrain/snow.jpg'  );
 		        snowyTexture.wrapS = snowyTexture.wrapT = THREE.RepeatWrapping;
 
 				var customUniforms = {
 	                bumpTexture:	{ type: "t", value: heightmapTexture },
 	                bumpScale:	    { type: "f", value: heightScale },
-	                oceanTexture:	{ type: "t", value: oceanTexture },
+	                groundTexture:	{ type: "t", value: groundTexture },
 	                sandyTexture:	{ type: "t", value: sandyTexture },
 	                grassTexture:	{ type: "t", value: grassTexture },
 	                rockyTexture:	{ type: "t", value: rockyTexture },
@@ -218,6 +222,11 @@
 
 			}
 
+			function initWater() {
+				// var water = new Water( 100, 100, 200, 200, new THREE.Vector3( 0, 22, 0 ), new THREE.Vector3( - Math.PI / 2, 0, 0 ), terrain );
+				// scene.add(water)
+			}
+
 
 			function init() {
 
@@ -228,10 +237,10 @@
 				k = 0.01
 				terrain_width = 1600
 				terrain_height = 900
-				// camera = new THREE.OrthographicCamera( k*terrain_width / - 2, k*terrain_width / 2, k*terrain_height / 2, k*terrain_height / - 2, -10000, 10000 );
-				// camera.position.z = 10;
-				camera = new THREE.PerspectiveCamera( 40, SCREEN_WIDTH / SCREEN_HEIGHT, 2, 4000 );
-				camera.position.set( 0, 50, 0 );
+				// camera = new THREE.OrthographicCamera( k*terrain_width / - 2, k*terrain_width / 2, k*terrain_height / 2, k*terrain_height / - 2, 0.5, 3000000 );
+				// camera.position.y = 5000;
+				camera = new THREE.PerspectiveCamera( 40, SCREEN_WIDTH / SCREEN_HEIGHT, 0.5, 3000000 );
+				camera.position.set( 2000, 750, 2000 );
 
 
 				controls = new THREE.OrbitControls( camera );
@@ -246,9 +255,11 @@
 				// SCENE (FINAL)
 
 				scene = new THREE.Scene();
-			    initCube();
-			    // initSkybox();
+				initLight()
+			    // initCube();
+			    initSkybox();
 			    initTerrain();
+			    initWater();
 
     			// initCamera();
 				// scene.fog = new THREE.Fog( 0x34583e, 2000, 4000 );
