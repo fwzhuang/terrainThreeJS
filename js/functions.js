@@ -59,9 +59,9 @@ var col = function( color ) {
     return new THREE.Color( color );   
 };
 
-// var worldPos = function( obj ) {
-//     // return obj.getWorldPosition();   
-// };
+var worldPos = function( obj ) {
+    return obj.getWorldPosition();   
+};
 
 var FBO = function( width, height, options ) {
 	return new THREE.WebGLRenderTarget( width, height, options );

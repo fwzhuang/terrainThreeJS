@@ -41,101 +41,31 @@
 		</div>
 
 		<script src="build/three.js"></script>
-
 		<script src="js/controls/OrbitControls.js"></script>
-
 		<script src="js/BufferGeometryUtils.js"></script>
 
-		// <script src="js/shaders/NormalMapShader.js"></script>
-		// <script src="js/ShaderTerrain.js"></script>
-		// <script src="js/functions.js"></script>
-		// <script src="js/WaterShader.js"></script>
+		<script src="js/websocket.js"></script>
+		<!-- Terrain shader -->
+	    <script src="js/ShaderTerrain.js"></script>
+		<!-- Water shader -->
+		<script src="js/functions.js"></script>
+		<script src="js/ShaderWater.js"></script>
+		<script src="js/Water.js"></script>
+		<!-- lib -->
 		<script src="js/Detector.js"></script>
 		<script src="js/libs/stats.min.js"></script>
-
-		<script id="fragmentShader" type="x-shader/x-fragment">
-
-		uniform sampler2D groundTexture;
-	    uniform sampler2D sandyTexture;
-	    uniform sampler2D grassTexture;
-	    uniform sampler2D rockyTexture;
-	    uniform sampler2D snowyTexture;
-
-	    varying vec2 vUV;
-
-	    varying float vAmount;
-
-	    void main() 
-	    {
-	        vec4 water = (smoothstep(0.01, 0.25, vAmount) - smoothstep(0.24, 0.26, vAmount)) * texture2D( sandyTexture, vUV * 10.0 );
-	        vec4 sandy = (smoothstep(0.24, 0.27, vAmount) - smoothstep(0.28, 0.31, vAmount)) * texture2D( groundTexture, vUV * 10.0 );
-	        vec4 grass = (smoothstep(0.28, 0.32, vAmount) - smoothstep(0.35, 0.40, vAmount)) * texture2D( grassTexture, vUV * 20.0 );
-	        vec4 rocky = (smoothstep(0.30, 0.50, vAmount) - smoothstep(0.40, 0.70, vAmount)) * texture2D( rockyTexture, vUV * 20.0 );
-	        vec4 snowy = (smoothstep(0.50, 0.65, vAmount))                                   * texture2D( snowyTexture, vUV * 10.0 );
-	        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0) + water + sandy + grass + rocky + snowy; //, 1.0);
-	    }  
-
-		</script>
-
-		<script id="vertexShader" type="x-shader/x-vertex">
-
-		uniform sampler2D bumpTexture;
-	    uniform float bumpScale;
-	    uniform float textRepeat;
-
-	    varying float vAmount;
-	    varying vec2 vUV;
-
-	    void main() 
-	    { 
-	        vUV = uv * textRepeat;
-	        vec4 bumpData = texture2D( bumpTexture, uv );
-
-	        vAmount = bumpData.r; // assuming map is grayscale it doesn't matter if you use r, g, or b.
-
-	        // move the position along the normal
-	        vec3 newPosition = position + normal * bumpScale * vAmount;
-
-	        gl_Position = projectionMatrix * modelViewMatrix * vec4( newPosition, 1.0 );
-	    }
-
-		</script>
-
+		<script src="js/libs/Projector.js"></script>
 		<script>
-
 			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
 
 			var SCREEN_WIDTH = window.innerWidth;
 			var SCREEN_HEIGHT = window.innerHeight;
-
 			var renderer, container, stats;
-
 			var camera, scene;
-
 			var terrain;
-
+			var water;
 			var light;
-
 			var clock = new THREE.Clock();
-
-			// var uniformsNoise, uniformsNormal,
-			// 	heightMap, normalMap,
-			// 	quadTarget;
-
-			// var directionalLight, pointLight;
-
-
-			// var animDelta = 0, animDeltaDir = -1;
-			// var lightVal = 0, lightDir = 1;
-
-			
-
-			// var updateNoise = true;
-
-			// var animateTerrain = false;
-
-			// var mlib = {};
-			//add 
 			var textureLoader = new THREE.TextureLoader();
 
 			init();
@@ -170,63 +100,94 @@
 				scene.add( skyBox );
 			}
 
-			function initTerrain() {
+			function initTerrain() {	
+				// load texture
+				var heightmapTexture = textureLoader.load("textures/terrain/heightmap.jpg");
+				var groundTexture = textureLoader.load("textures/terrain/ground.jpg");
+		        var grassTexture = textureLoader.load("textures/terrain/grass.jpg");
+		        var snowTexture = textureLoader.load("textures/terrain/snow.jpg");
+		        var sandTexture = textureLoader.load("textures/terrain/sand.jpg");
+		        var rockTexture = textureLoader.load("textures/terrain/rock.jpg"); 
+		        var blendTexture = textureLoader.load("textures/terrain/blend.png");
+				// Set Shader uniforms
+				var terrainShader = THREE.ShaderTerrain[ "terrain" ];
+				uniformsTerrain = THREE.UniformsUtils.clone( terrainShader.uniforms );
 
-				terrainGeometry = new THREE.PlaneGeometry( 4096, 4096, 511, 511 ); // image is 512x512, so we need that -1 here.
-            	terrainGeometry.dynamic = true;
+				uniformsTerrain['heightmapSampler'].value = heightmapTexture;
+				uniformsTerrain[ 'groundSampler' ].value = groundTexture;
+				uniformsTerrain[ 'sandSampler' ].value = sandTexture;
+				uniformsTerrain[ 'rockSampler' ].value = rockTexture;
+				uniformsTerrain[ 'snowSampler' ].value = snowTexture;
+				uniformsTerrain[ 'grassSampler' ].value = grassTexture;
+				uniformsTerrain[ 'blendSampler' ].value = blendTexture;
 
-            	var heightScale = 1000.0; // 200.0
-            	var heightmapTexture = textureLoader.load('textures/terrain/heightmap.jpg')
- 	
-            	var groundTexture = textureLoader.load('textures/terrain/ground.jpg')
-		        groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
-		        // groundTexture.repeat.set( 10, 10 );
-		        
-		        var sandyTexture = textureLoader.load('textures/terrain/sand.jpg' );
-		        sandyTexture.wrapS = sandyTexture.wrapT = THREE.RepeatWrapping;
-		        // sandyTexture.repeat.set( 50, 50 );
-		        
-		        var grassTexture = textureLoader.load('textures/terrain/grass.jpg' );
-		        grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
-		        
-		        var rockyTexture = textureLoader.load('textures/terrain/rock.jpg' );
-		        rockyTexture.wrapS = rockyTexture.wrapT = THREE.RepeatWrapping;
-		        
-		        var snowyTexture = textureLoader.load('textures/terrain/snow.jpg'  );
-		        snowyTexture.wrapS = snowyTexture.wrapT = THREE.RepeatWrapping;
-
-				var customUniforms = {
-	                bumpTexture:	{ type: "t", value: heightmapTexture },
-	                bumpScale:	    { type: "f", value: heightScale },
-	                groundTexture:	{ type: "t", value: groundTexture },
-	                sandyTexture:	{ type: "t", value: sandyTexture },
-	                grassTexture:	{ type: "t", value: grassTexture },
-	                rockyTexture:	{ type: "t", value: rockyTexture },
-	                snowyTexture:	{ type: "t", value: snowyTexture },
-	                textRepeat:     { type: "f", value: 8 }
-	            };
-
-            	var customMaterial = new THREE.ShaderMaterial( {
-                uniforms: customUniforms,
-                vertexShader: document.getElementById( 'vertexShader' ).textContent,
-                fragmentShader: document.getElementById( 'fragmentShader' ).textContent,
-                wireframe: false
-                // side: THREE.DoubleSide
-            	} );
-
-            	terrain = new THREE.Mesh( terrainGeometry,  customMaterial );
-	            terrain.rotation.x = -Math.PI / 2;
-	            // terrain.position.y = -180; // changed by offset?
-	            terrain.name = "Terrain";
-	            scene.add( terrain );
+				var sandLimit = 1;
+		        var grassLimit = 6;
+		        var rockLimit = 12;
+		        var snowLimit = 18;
+		        uniformsTerrain[ 'vLimits' ].value = new THREE.Vector4( sandLimit, grassLimit, rockLimit, snowLimit );
+		        uniformsTerrain[ 'vLightPosition' ].value.set(0, 100000, 0);
+		        // Create terrain Material
+				var terrainMaterial = new THREE.ShaderMaterial({
+						uniforms: 		uniformsTerrain,
+						vertexShader: 	terrainShader.vertexShader,
+						fragmentShader: terrainShader.fragmentShader,
+						lights: 		true,
+						fog: 			true
+				})
+				var geometryTerrain = new THREE.PlaneGeometry( 160, 90, 127, 127 );
+				geometryTerrain.rotateX(-Math.PI/2);
+				terrain = new THREE.Mesh(geometryTerrain, terrainMaterial);
+				terrain.position.y = -5.0;
+				scene.add(terrain)
 
 			}
 
 			function initWater() {
-				// var water = new Water( 100, 100, 200, 200, new THREE.Vector3( 0, 22, 0 ), new THREE.Vector3( - Math.PI / 2, 0, 0 ), terrain );
-				// scene.add(water)
+				var geometryWater = new THREE.PlaneGeometry( 160, 90, 127, 127);
+				var object = new THREE.Object3D();
+				water = new Water( 160, 90, 127, 127, vec3( 0, 0.0, 0 ), vec3( - Math.PI / 2, 0, 0 ));
+				object.add(water.mesh );
+				scene.add( object );
 			}
 
+			function initGroundPlane(){
+				//create plane for reference and for intersection test
+		        var groundPlaneGeom = new THREE.PlaneGeometry(160, 60, 1, 1);  //much faster for intersection test when there are no divisions
+		        groundPlaneGeom.applyMatrix(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+		        var groundPlaneMaterial = new THREE.MeshPhongMaterial();
+		        groundPlaneMesh = new THREE.Mesh(groundPlaneGeom, groundPlaneMaterial);
+		        groundPlaneMesh.castShadow = true;
+		        groundPlaneMesh.receiveShadow = true;
+		        groundPlaneMesh.visible = false;
+		        scene.add(groundPlaneMesh);
+			}
+			var projector = new THREE.Projector();
+		    var raycaster = new THREE.Raycaster();
+		    var intersectPoint = new THREE.Vector3();
+		    var mousePosNorm = new THREE.Vector2();
+		    function detectIntersection(event) {
+
+		        mousePosNorm.x = (event.clientX / window.innerWidth) * 2 - 1;
+		        mousePosNorm.y = -(event.clientY / window.innerHeight) * 2 + 1;
+		        //cast a ray from camera into screen
+		        var vector = new THREE.Vector3( mousePosNorm.x, mousePosNorm.y, 0.5 );;
+			    vector.unproject( camera );
+			    raycaster.set( camera.position, vector.sub( camera.position ).normalize() );
+
+		        // var worldPos = new THREE.Vector3(mousePosNorm.x, mousePosNorm.y, 1);
+		        // projector.unprojectVector(worldPos, camera);
+		        // raycaster.set(camera.position, worldPos.sub(camera.position).normalize());
+		        var intersectInfo = raycaster.intersectObject( );
+		        console.log(intersectInfo);
+		        //get intersection point
+		        if (intersectInfo && intersectInfo[0]) {
+		        	console.log(intersectInfo[0].point.x())
+		            return intersectInfo[0].point;
+		        }
+
+		        return null;
+		    }
 
 			function init() {
 
@@ -234,14 +195,14 @@
 
 				// SCENE (RENDER TARGET)
 				// CAMERA
-				k = 0.01
-				terrain_width = 1600
-				terrain_height = 900
+				// k = 0.050;
+				// terrain_width = 1600;
+				// terrain_height = 900;
 				// camera = new THREE.OrthographicCamera( k*terrain_width / - 2, k*terrain_width / 2, k*terrain_height / 2, k*terrain_height / - 2, 0.5, 3000000 );
 				// camera.position.y = 5000;
 				camera = new THREE.PerspectiveCamera( 40, SCREEN_WIDTH / SCREEN_HEIGHT, 0.5, 3000000 );
-				camera.position.set( 2000, 750, 2000 );
-
+				camera.position.set( 0, 100, 10 );
+				camera.lookAt(new THREE.Vector3(0, 0, 0));
 
 				controls = new THREE.OrbitControls( camera );
 				controls.target.set( 0, 0, 0 );
@@ -252,256 +213,84 @@
 
 				controls.keys = [ 65, 83, 68 ];
 
-				// SCENE (FINAL)
-
-				scene = new THREE.Scene();
-				initLight()
-			    // initCube();
-			    initSkybox();
-			    initTerrain();
-			    initWater();
-
-    			// initCamera();
-				// scene.fog = new THREE.Fog( 0x34583e, 2000, 4000 );
-
-				// LIGHTS
-
-				// scene.add( new THREE.AmbientLight( 0x111111 ) );
-
-				// directionalLight = new THREE.DirectionalLight( 0xffffff, 1.15 );
-				// directionalLight.position.set( 500, 2000, 0 );
-				// scene.add( directionalLight );
-
-				// pointLight = new THREE.PointLight( 0xff4400, 1.5 );
-				// pointLight.position.set( 0, 0, 0 );
-				// scene.add( pointLight );
-
-
-				// // HEIGHT + NORMAL MAPS
-
-				// var normalShader = THREE.NormalMapShader;
-
-				// var rx = 256, ry = 256;
-				// var pars = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBFormat };
-
-				// heightMap  = new THREE.WebGLRenderTarget( rx, ry, pars );
-				// heightMap.texture.generateMipmaps = false;
-
-				// normalMap = new THREE.WebGLRenderTarget( rx, ry, pars );
-				// normalMap.texture.generateMipmaps = false;
-
-				// uniformsNoise = {
-
-				// 	time:   { value: 1.0 },
-				// 	scale:  { value: new THREE.Vector2( 1.5, 1.5 ) },
-				// 	offset: { value: new THREE.Vector2( 0, 0 ) }
-
-				// };
-
-				// uniformsNormal = THREE.UniformsUtils.clone( normalShader.uniforms );
-
-				// uniformsNormal.height.value = 0.05;
-				// uniformsNormal.resolution.value.set( rx, ry );
-				// uniformsNormal.heightMap.value = heightMap.texture;
-
-				// var vertexShader = document.getElementById( 'vertexShader' ).textContent;
-
-				// // TEXTURES
-
-				// var loadingManager = new THREE.LoadingManager( function(){
-				// 	terrain.visible = true;
-				// });
-				// var textureLoader = new THREE.TextureLoader( loadingManager );
-
-				// var specularMap = new THREE.WebGLRenderTarget( 2048, 2048, pars );
-				// specularMap.texture.generateMipmaps = false;
-
-				// var diffuseTexture1 = textureLoader.load( "textures/terrain/grasslight-big.jpg");
-				// var diffuseTexture2 = textureLoader.load( "textures/terrain/backgrounddetailed6.jpg" );
-				// var detailTexture = textureLoader.load( "textures/terrain/grasslight-big-nm.jpg" );
-
-				// diffuseTexture1.wrapS = diffuseTexture1.wrapT = THREE.RepeatWrapping;
-				// diffuseTexture2.wrapS = diffuseTexture2.wrapT = THREE.RepeatWrapping;
-				// detailTexture.wrapS = detailTexture.wrapT = THREE.RepeatWrapping;
-				// specularMap.texture.wrapS = specularMap.texture.wrapT = THREE.RepeatWrapping;
-
-				// // TERRAIN SHADER
-
-				// var terrainShader = THREE.ShaderTerrain[ "terrain" ];
-
-				// uniformsTerrain = THREE.UniformsUtils.clone( terrainShader.uniforms );
-
-				// uniformsTerrain[ 'tNormal' ].value = normalMap.texture;
-				// uniformsTerrain[ 'uNormalScale' ].value = 3.5;
-
-				// uniformsTerrain[ 'tDisplacement' ].value = heightMap.texture;
-
-				// uniformsTerrain[ 'tDiffuse1' ].value = diffuseTexture1;
-				// uniformsTerrain[ 'tDiffuse2' ].value = diffuseTexture2;
-				// uniformsTerrain[ 'tSpecular' ].value = specularMap.texture;
-				// uniformsTerrain[ 'tDetail' ].value = detailTexture;
-
-				// uniformsTerrain[ 'enableDiffuse1' ].value = true;
-				// uniformsTerrain[ 'enableDiffuse2' ].value = true;
-				// uniformsTerrain[ 'enableSpecular' ].value = true;
-
-				// uniformsTerrain[ 'diffuse' ].value.setHex( 0xffffff );
-				// uniformsTerrain[ 'specular' ].value.setHex( 0xffffff );
-
-				// uniformsTerrain[ 'shininess' ].value = 30;
-
-				// uniformsTerrain[ 'uDisplacementScale' ].value = 375;
-
-				// uniformsTerrain[ 'uRepeatOverlay' ].value.set( 6, 6 );
-
-				// var params = [
-				// 	[ 'heightmap', 	document.getElementById( 'fragmentShaderNoise' ).textContent, 	vertexShader, uniformsNoise, false ],
-				// 	[ 'normal', 	normalShader.fragmentShader,  normalShader.vertexShader, uniformsNormal, false ],
-				// 	[ 'terrain', 	terrainShader.fragmentShader, terrainShader.vertexShader, uniformsTerrain, true ]
-				//  ];
-
-				// for( var i = 0; i < params.length; i ++ ) {
-
-				// 	material = new THREE.ShaderMaterial( {
-
-				// 		uniforms: 		params[ i ][ 3 ],
-				// 		vertexShader: 	params[ i ][ 2 ],
-				// 		fragmentShader: params[ i ][ 1 ],
-				// 		lights: 		params[ i ][ 4 ],
-				// 		fog: 			false
-				// 		} );
-
-				// 	mlib[ params[ i ][ 0 ] ] = material;
-
-				// }
-
-
-				// var plane = new THREE.PlaneBufferGeometry( SCREEN_WIDTH, SCREEN_HEIGHT );
-
-				// quadTarget = new THREE.Mesh( plane, new THREE.MeshBasicMaterial( { color: 0x000000 } ) );
-				// quadTarget.position.z = -500;
-				// sceneRenderTarget.add( quadTarget );
-
-				// TERRAIN MESH
-
-				// var geometryTerrain = new THREE.PlaneBufferGeometry( 6000, 6000, 256, 256 );
-
-				// THREE.BufferGeometryUtils.computeTangents( geometryTerrain );
-
-				// terrain = new THREE.Mesh( geometryTerrain, mlib[ 'terrain' ] );
-				// terrain.position.set( 0, -125, 0 );
-				// terrain.rotation.x = -Math.PI / 2;
-				// terrain.visible = false;
-				// scene.add( terrain );
-
 				// RENDERER
-
 				renderer = new THREE.WebGLRenderer({antialias:true});
 				// renderer.setClearColor( 0xffffff );
-				// renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setPixelRatio( window.devicePixelRatio );
 				renderer.setSize( SCREEN_WIDTH, SCREEN_HEIGHT );
 				container.appendChild( renderer.domElement );
 
 				// STATS
-
 				stats = new Stats();
 				container.appendChild( stats.dom );
 
+				// SCENE (FINAL)
+				scene = new THREE.Scene();
+				initLight()
+			    // initCube();
+			    initSkybox();
+			    initGroundPlane()
+			    initTerrain();
+			    initWater();
+			    socketLink();
 				// EVENTS
-
 				onWindowResize();
-
 				window.addEventListener( 'resize', onWindowResize, false );
-
 				document.addEventListener( 'keydown', onKeyDown, false );
-
+				window.addEventListener('mousedown', window_onMouseDown, false);
+		  //       window.addEventListener('mousemove', window_onMouseMove, false);
+		  //       window.addEventListener('mouseup', window_onMouseUp, false);
 			}
 
 			//
-
 			function onWindowResize( event ) {
 
 				SCREEN_WIDTH = window.innerWidth;
 				SCREEN_HEIGHT = window.innerHeight;
-
 				renderer.setSize( SCREEN_WIDTH, SCREEN_HEIGHT );
-
 				camera.aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
 				camera.updateProjectionMatrix();
 
 			}
-
 			//
-
 			function onKeyDown ( event ) {
-
 				switch( event.keyCode ) {
-
-					case 78: /*N*/  lightDir *= -1; break;
-					case 77: /*M*/  animDeltaDir *= -1; break;
-
+					case 78: /*N*/  console.log("key N"); break;
+					case 77: /*M*/  console.log("key M"); break;
 				}
-
 			}
 
-			//
+
+			function window_onMouseDown(event) {
+                if (event.button === 0) {  //LMB
+                    //detect intersection
+                    intersectPoint = detectIntersection(event);
+                    if (intersectPoint) {
+                        console.log(intersectPoint[0]);
+                    }
+                }
+		    }
 
 			function animate() {
-
 				requestAnimationFrame( animate );
-
 				render();
 				stats.update();
-
 			}
 
 			function render() {
-
 				var delta = clock.getDelta();
-
-				// if ( terrain.visible ) {
-
 					controls.update();
-
-					// var time = Date.now() * 0.001;
-
-					// var fLow = 0.1, fHigh = 0.8;
-
-					// lightVal = THREE.Math.clamp( lightVal + 0.5 * delta * lightDir, fLow, fHigh );
-
-					// var valNorm = ( lightVal - fLow ) / ( fHigh - fLow );
-
-					// scene.fog.color.setHSL( 0.1, 0.5, lightVal );
-
-					// renderer.setClearColor( scene.fog.color );
-
-					// directionalLight.intensity = THREE.Math.mapLinear( valNorm, 0, 1, 0.1, 1.15 );
-					// pointLight.intensity = THREE.Math.mapLinear( valNorm, 0, 1, 0.9, 1.5 );
-
-					// uniformsTerrain[ 'uNormalScale' ].value = THREE.Math.mapLinear( valNorm, 0, 1, 0.6, 3.5 );
-
-
-					// if ( updateNoise ) {
-
-						// animDelta = THREE.Math.clamp( animDelta + 0.00075 * animDeltaDir, 0, 0.05 );
-						// uniformsNoise[ 'time' ].value += delta * animDelta;
-
-						// uniformsNoise[ 'offset' ].value.x += delta * 0.05;
-
-						// uniformsTerrain[ 'uOffset' ].value.x = 4 * uniformsNoise[ 'offset' ].value.x;
-
-						// quadTarget.material = mlib[ 'heightmap' ];
-						// renderer.render( sceneRenderTarget, cameraOrtho, heightMap, true );
-
-						// quadTarget.material = mlib[ 'normal' ];
-						// renderer.render( sceneRenderTarget, cameraOrtho, normalMap, true );
-
-					// }
-
+					if(socketOpen)
+			            for (var i = 0; i < this.geometryTerrain.vertices.length; i++) {
+			                tCount += 1;
+			                var k = 0;
+			                if(intervalCount > 0)
+			                    k = tCount / intervalCount;
+			                this.geometryTerrain.vertices[i].y = (1 - k) * preData[i] + k * outData[i] - 0.68;
+			            }
+					water.update();
+					// water.drop( Math.random(), Math.random() );
 					renderer.render( scene, camera );
-
-				// }
-
 			}
 
 		</script>
